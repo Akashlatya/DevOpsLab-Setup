@@ -248,3 +248,5 @@ warn "Jenkins initial admin password ke liye ye command chalao:"
 warn "  sudo cat /var/lib/jenkins/secrets/initialAdminPassword"
 warn "Jenkins UI: http://localhost:8080"
 ok "DevOps lab setup complete ho gaya! Poora log yaha hai: $LOG_FILE"
+
+echo "Akash Latya"
