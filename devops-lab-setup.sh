@@ -33,6 +33,16 @@ err()   { echo -e "\e[31m[ERROR]\e[0m $1"; }
 
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 
+configure_jenkins_repo() {
+    sudo install -d -m 0755 /etc/apt/keyrings
+    curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | \
+        sudo gpg --dearmor --yes -o /etc/apt/keyrings/jenkins-keyring.gpg
+    sudo chmod a+r /etc/apt/keyrings/jenkins-keyring.gpg
+    echo "deb [signed-by=/etc/apt/keyrings/jenkins-keyring.gpg]" \
+        "https://pkg.jenkins.io/debian-stable binary/" | \
+        sudo tee /etc/apt/sources.list.d/jenkins.list > /dev/null
+}
+
 trap 'err "Script line $LINENO par fail hua. Log dekho: $LOG_FILE"' ERR
 
 if [[ $EUID -eq 0 ]]; then
@@ -41,6 +51,11 @@ if [[ $EUID -eq 0 ]]; then
 fi
 
 info "DevOps lab setup shuru ho raha hai. Log yaha save ho raha hai: $LOG_FILE"
+
+# Repair a Jenkins source left by an interrupted earlier run before apt update.
+if [[ -f /etc/apt/sources.list.d/jenkins.list ]]; then
+    configure_jenkins_repo
+fi
 
 # ---------- 1. System update ----------
 info "Step 1: System update ho raha hai..."
@@ -119,11 +134,7 @@ info "Step 6: Jenkins install ho raha hai..."
 if command_exists jenkins || systemctl list-unit-files 2>/dev/null | grep -q '^jenkins.service'; then
     ok "Jenkins already installed hai."
 else
-    curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | \
-      sudo tee /usr/share/keyrings/jenkins-keyring.asc > /dev/null
-    echo "deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc]" \
-      "https://pkg.jenkins.io/debian-stable binary/" | \
-      sudo tee /etc/apt/sources.list.d/jenkins.list > /dev/null
+        configure_jenkins_repo
 
     sudo apt-get update -y
     sudo apt-get install -y jenkins
@@ -248,5 +259,3 @@ warn "Jenkins initial admin password ke liye ye command chalao:"
 warn "  sudo cat /var/lib/jenkins/secrets/initialAdminPassword"
 warn "Jenkins UI: http://localhost:8080"
 ok "DevOps lab setup complete ho gaya! Poora log yaha hai: $LOG_FILE"
-
-echo "installation complete !"
