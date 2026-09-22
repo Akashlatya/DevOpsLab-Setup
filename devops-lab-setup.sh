@@ -16,7 +16,7 @@
 #           - Har step ke baad status print hota hai taaki pata chale kahan
 #             tak setup hua.
 #           - Docker group add hone ke baad ek baar logout/login ya
-#             `newgrp docker` chalana padega.
+#             `newgrp docker` chalana padega.okk
 ###############################################################################
 
 set -uo pipefail
