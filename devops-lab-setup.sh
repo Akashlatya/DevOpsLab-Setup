@@ -19,11 +19,12 @@
 #             `newgrp docker` chalana padega.
 ###############################################################################
 
-set -euo pipefail
+set -uo pipefail
 IFS=$'\n\t'
 
 LOG_FILE="$HOME/devops-lab-setup.log"
 exec > >(tee -a "$LOG_FILE") 2>&1
+FAILED_STEPS=()
 
 # ---------- Helper functions ----------
 info()  { echo -e "\e[34m[INFO]\e[0m  $1"; }
@@ -33,9 +34,25 @@ err()   { echo -e "\e[31m[ERROR]\e[0m $1"; }
 
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 
+prepare_disk_space() {
+    info "Disk space check aur package cache cleanup ho raha hai..."
+    sudo apt-get clean || true
+    sudo journalctl --vacuum-time=7d >/dev/null 2>&1 || true
+
+    local available_kb
+    available_kb="$(df -Pk / | awk 'NR==2 {print $4}')"
+    info "Root filesystem me available space: $((available_kb / 1024)) MB"
+
+    if (( available_kb < 2097152 )); then
+        warn "Root filesystem me 2 GB se kam space hai. Full system upgrade skip hoga."
+        return 1
+    fi
+    return 0
+}
+
 configure_jenkins_repo() {
     sudo install -d -m 0755 /etc/apt/keyrings
-    curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | \
+    curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key | \
         sudo gpg --dearmor --yes -o /etc/apt/keyrings/jenkins-keyring.gpg
     sudo chmod a+r /etc/apt/keyrings/jenkins-keyring.gpg
     echo "deb [signed-by=/etc/apt/keyrings/jenkins-keyring.gpg]" \
@@ -43,7 +60,13 @@ configure_jenkins_repo() {
         sudo tee /etc/apt/sources.list.d/jenkins.list > /dev/null
 }
 
-trap 'err "Script line $LINENO par fail hua. Log dekho: $LOG_FILE"' ERR
+record_error() {
+    local line="$1"
+    err "Script line $line par fail hua. Agla command continue hoga. Log dekho: $LOG_FILE"
+    FAILED_STEPS+=("line $line")
+}
+
+trap 'record_error "$LINENO"' ERR
 
 if [[ $EUID -eq 0 ]]; then
     err "Is script ko root se mat chalao. Normal user se chalao (sudo internally use hoga)."
@@ -59,8 +82,13 @@ fi
 
 # ---------- 1. System update ----------
 info "Step 1: System update ho raha hai..."
-sudo apt-get update -y
-sudo apt-get upgrade -y
+if prepare_disk_space; then
+    sudo apt-get update -y
+    sudo apt-get upgrade -y
+else
+    sudo apt-get update -y
+    warn "Disk space kam hai, isliye optional apt upgrade skip kiya gaya."
+fi
 sudo apt-get install -y ca-certificates curl gnupg lsb-release software-properties-common apt-transport-https \
     unzip zip wget git build-essential vim nano htop net-tools tree jq tmux python3 python3-pip
 ok "System update aur base packages (vim, unzip, wget, htop, jq, tree, etc.) ho gaye."
@@ -122,10 +150,10 @@ ok "Docker service enabled aur running hai."
 
 # ---------- 5. Java (Jenkins ke liye zaroori) ----------
 info "Step 5: Java (JDK) install ho raha hai..."
-if command_exists java; then
+if command_exists java && java -version 2>&1 | grep -qE 'version "(2[1-9]|[3-9][0-9])|openjdk (2[1-9]|[3-9][0-9])'; then
     ok "Java already installed hai: $(java -version 2>&1 | head -n1)"
 else
-    sudo apt-get install -y fontconfig openjdk-17-jre
+    sudo apt-get install -y fontconfig openjdk-21-jre
     ok "Java install ho gaya: $(java -version 2>&1 | head -n1)"
 fi
 
@@ -243,13 +271,16 @@ check_version "minikube"  "minikube version"
 
 echo "==============================================================="
 echo
-set -e
 
 if [[ ${#FAILED_TOOLS[@]} -eq 0 ]]; then
     ok "Sab tools sahi se install ho gaye aur version check pass ho gaya! ✅"
 else
     err "In tools me issue mila: ${FAILED_TOOLS[*]}"
     warn "Inhe manually check karo ya script dubara chalao — idempotent hai, safe hai."
+fi
+
+if [[ ${#FAILED_STEPS[@]} -gt 0 ]]; then
+    warn "Kuch commands fail hue, lekin script ne baaki setup continue kiya: ${FAILED_STEPS[*]}"
 fi
 
 echo
